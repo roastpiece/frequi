@@ -25,6 +25,12 @@ You can use `docker compose pull` to update to the latest version of the UI.
 Please note: This is a standalone version of FreqUI, and will still require a correctly configured freqtrade bot.
 You'll need to correctly configure [CORS](https://www.freqtrade.io/en/stable/rest-api/#cors) in freqtrade to allow FreqUI to connect to the API.
 
+### Preconfigured bots
+
+Serve a `bots.json` file from the site root to log in bots on startup. The file is optional; when it is missing, FreqUI shows the login screen as usual. In Kubernetes, mount it at `/etc/nginx/html/bots.json` with a `subPath` mount so the rest of the site stays in place. See [`bots.json.example`](bots.json.example). `sortId` is optional and overrides the array order.
+
+`url` is the bot origin without `/api/v1`. When that origin differs from the FreqUI origin, add the FreqUI origin to the bot's [`CORS_origins`](https://www.freqtrade.io/en/stable/rest-api/#cors). The browser sends the login and later API requests directly to each bot.
+
 ## Developer project setup
 
 It will require [freqtrade](https://github.com/freqtrade/freqtrade) to be running on the same host with the API enabled under (`localhost:8080`). You can either use the webpack proxy (port can be changed in `vue.config.js`) - or connect directly to the API (recommended).

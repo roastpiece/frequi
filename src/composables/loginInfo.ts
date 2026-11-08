@@ -11,9 +11,20 @@ import type {
 
 const AUTH_LOGIN_INFO = 'ftAuthLoginInfo';
 const APIBASE = '/api/v1';
+const BOTS_CONFIG_URL = '/bots.json';
+
+interface ConfiguredBot {
+  botName: string;
+  url: string;
+  username: string;
+  password: string;
+  sortId?: number;
+}
 
 // Global state for all login infos
 const allLoginInfos = useStorage<AuthStorageMulti>(AUTH_LOGIN_INFO, {});
+
+let configuredBotsPromise: Promise<void> | null = null;
 
 /**
  * Get available bots with their descriptors
@@ -192,4 +203,142 @@ export function useLoginInfo(botId: string) {
     baseUrl,
     baseWsUrl,
   };
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function configuredBot(value: unknown): ConfiguredBot | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const bot = value as Record<string, unknown>;
+  if (
+    !isNonEmptyString(bot.botName) ||
+    !isNonEmptyString(bot.url) ||
+    !isNonEmptyString(bot.username) ||
+    !isNonEmptyString(bot.password)
+  ) {
+    return undefined;
+  }
+  if (bot.sortId !== undefined && typeof bot.sortId !== 'number') {
+    return undefined;
+  }
+  return {
+    botName: bot.botName,
+    url: bot.url,
+    username: bot.username,
+    password: bot.password,
+    ...(typeof bot.sortId === 'number' ? { sortId: bot.sortId } : {}),
+  };
+}
+
+async function readConfiguredBots(): Promise<ConfiguredBot[]> {
+  let response: Response;
+  try {
+    response = await fetch(BOTS_CONFIG_URL, { cache: 'no-store' });
+  } catch (error) {
+    console.error('Failed to fetch /bots.json', error);
+    return [];
+  }
+  if (response.status === 404) {
+    return [];
+  }
+  if (!response.ok) {
+    console.error(`Failed to fetch /bots.json (${response.status})`);
+    return [];
+  }
+  const contentType = response.headers.get('content-type') ?? '';
+  // A missing file on the SPA fallback is index.html, not a bot list.
+  if (contentType.includes('text/html')) {
+    return [];
+  }
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (error) {
+    console.error('Ignoring /bots.json because it is not valid JSON', error);
+    return [];
+  }
+  if (!Array.isArray(body)) {
+    console.error('Ignoring /bots.json because it is not a list of bots');
+    return [];
+  }
+  const bots: ConfiguredBot[] = [];
+  body.forEach((entry, index) => {
+    const bot = configuredBot(entry);
+    if (!bot) {
+      console.error(`Ignoring invalid /bots.json entry at index ${index}`);
+      return;
+    }
+    bots.push(bot);
+  });
+  return bots;
+}
+
+function findBotIdByUrl(url: string): string | undefined {
+  return Object.keys(allLoginInfos.value).find(
+    (botId) => allLoginInfos.value[botId]?.apiUrl === url,
+  );
+}
+
+function nextConfiguredBotId(): string {
+  let nextBotCount = Object.keys(allLoginInfos.value).length;
+  while (`ftbot.${nextBotCount}` in allLoginInfos.value) {
+    nextBotCount += 1;
+  }
+  return `ftbot.${nextBotCount}`;
+}
+
+/**
+ * Log in bots declared in /bots.json.
+ * Passwords are sent only on the login request and are not stored.
+ */
+export async function loadConfiguredBots(): Promise<void> {
+  const bots = await readConfiguredBots();
+  const seenUrls = new Set<string>();
+  let sortFallback = 0;
+
+  for (const bot of bots) {
+    const sortId = bot.sortId ?? sortFallback;
+    sortFallback += 1;
+    if (seenUrls.has(bot.url)) {
+      continue;
+    }
+    seenUrls.add(bot.url);
+
+    const existingId = findBotIdByUrl(bot.url);
+    const existing = existingId ? allLoginInfos.value[existingId] : undefined;
+    if (existing?.refreshToken) {
+      continue;
+    }
+
+    const botId = existingId ?? nextConfiguredBotId();
+    try {
+      const { login } = useLoginInfo(botId);
+      await login({
+        botName: bot.botName,
+        url: bot.url,
+        username: bot.username,
+        password: bot.password,
+      });
+      const stored = allLoginInfos.value[botId];
+      if (stored) {
+        allLoginInfos.value[botId] = { ...stored, sortId };
+      }
+    } catch (error) {
+      console.error(`Failed to log in configured bot ${bot.botName} at ${bot.url}`, error);
+    }
+  }
+}
+
+/** Read /bots.json once per page load, then log in any configured bots. */
+export function ensureConfiguredBots(): Promise<void> {
+  if (!configuredBotsPromise) {
+    configuredBotsPromise = loadConfiguredBots().catch((error) => {
+      console.error('Failed to load configured bots', error);
+    });
+  }
+  return configuredBotsPromise;
 }

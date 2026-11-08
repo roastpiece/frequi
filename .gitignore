@@ -11,6 +11,9 @@ src/typed-router.d.ts
 .env.local
 .env.*.local
 
+# Local preconfigured bots. This file can contain API passwords.
+public/bots.json
+
 # Log files
 npm-debug.log*
 yarn-debug.log*

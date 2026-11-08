@@ -1,0 +1,8 @@
+[
+  {
+    "botName": "binance",
+    "url": "https://bots.example.com/binance",
+    "username": "freqtrader",
+    "password": "secret"
+  }
+]

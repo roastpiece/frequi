@@ -6,7 +6,8 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
+  await ensureConfiguredBots();
   // Init bots here...
   initBots();
   const botStore = useBotStore();
